@@ -59,4 +59,30 @@ app.get('/api/feed', (req, res) => {
   res.json(rumors);
 });
 
+// US7: Express agreement/disagreement
+app.post('/api/rumors/:id/votes', (req, res) => {
+  const parentId = req.params.id;
+  const { vote, voterId, reputationMock } = req.body;
+
+  // AC: Check if user has Reputation > 0 (Mocked for early sprint)
+  if (reputationMock <= 0) {
+    return res.status(403).json({ error: 'Reputation too low to vote.' });
+  }
+
+  // AC: Create child node in DAG linking to the rumor
+  const voteNode = {
+    id: `vote_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    type: 'VOTE',
+    parentId: parentId,
+    vote: vote, // +1 or -1
+    voterId: voterId,
+    timestamp: Date.now()
+  };
+
+  dag.push(voteNode);
+  broadcast({ type: 'NEW_VOTE', node: voteNode });
+  
+  res.json(voteNode);
+});
+
 server.listen(5000, () => console.log('Sprint 1 Server running on port 5000'));
