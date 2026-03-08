@@ -52,4 +52,11 @@ app.post('/api/rumors', (req, res) => {
   res.json(node);
 });
 
+// US5: Fetch recent rumors
+app.get('/api/feed', (req, res) => {
+  // Filter only RUMOR nodes and send them to the frontend
+  const rumors = dag.filter(n => n.type === 'RUMOR').sort((a, b) => b.timestamp - a.timestamp);
+  res.json(rumors);
+});
+
 server.listen(5000, () => console.log('Sprint 1 Server running on port 5000'));
