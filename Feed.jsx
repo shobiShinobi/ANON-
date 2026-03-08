@@ -21,7 +21,16 @@ export default function Feed() {
       }
     };
     return () => ws.close();
+
   }, []);
+
+    const handleVote = async (parentId, voteValue) => {
+    await fetch(`http://localhost:5000/api/rumors/${parentId}/votes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vote: voteValue, voterId: userId, reputationMock: 0.5 })
+    });
+  };
 
   return (
     <div className="max-w-2xl mx-auto p-4 text-white">
@@ -30,12 +39,28 @@ export default function Feed() {
       
       <div className="space-y-4">
         {posts.map(post => (
-          // AC: Each rumor in its own box with text and time
           <div key={post.id} className="bg-gray-800 p-4 rounded-xl border border-gray-700">
-            <p className="text-lg mb-2">{post.text}</p>
+            <p className="text-lg mb-3">{post.text}</p>
+            
+            <div className="flex gap-2 mb-3 pt-3 border-t border-gray-700">
+              {/* AC: UI Verify (+1) and Dispute (-1) buttons */}
+              <button 
+                onClick={() => handleVote(post.id, 1)}
+                className="bg-gray-700 hover:bg-green-900 text-green-400 px-3 py-1 rounded text-sm font-bold"
+              >
+                +1 Verify
+              </button>
+              <button 
+                onClick={() => handleVote(post.id, -1)}
+                className="bg-gray-700 hover:bg-red-900 text-red-400 px-3 py-1 rounded text-sm font-bold"
+              >
+                -1 Dispute
+              </button>
+            </div>
+
             <div className="flex justify-between text-xs text-gray-400">
               <span>{new Date(post.timestamp).toLocaleTimeString()}</span>
-              <span>Score Placeholder</span> {/* To be updated in US9 */}
+              <span>Score Placeholder</span>
             </div>
           </div>
         ))}
