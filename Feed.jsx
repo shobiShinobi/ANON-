@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PostForm from './PostForm.jsx'; 
 
 const TrustBadge = ({ score }) => {
@@ -24,9 +24,12 @@ export default function Feed() {
   const [posts, setPosts] = useState([]);
   const [userId] = useState(() => Math.floor(Math.random() * 1000).toString());
   
-  // NEW: State for Easter Egg and Error Messages
   const [flash67, setFlash67] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // NEW: React memory refs to track the easter egg properly
+  const hasFlashedEver = useRef(false);
+  const prevPosts = useRef([]);
 
   const fetchPosts = () => {
     fetch('http://localhost:5000/api/feed')
@@ -48,17 +51,43 @@ export default function Feed() {
     return () => ws.close();
   }, []);
 
-  // NEW: Easter Egg Trigger
+  // UPDATED: Smart Easter Egg Trigger
   useEffect(() => {
-    // If any post hits exactly 67 votes OR a score of 0.67 (67%)
-    const has67 = posts.some(p => p.totalVotes === 67 || Number(p.score).toFixed(2) === "0.67");
-    
-    if (has67 && !flash67) {
+    // 1. If we already flashed this session, do nothing.
+    if (hasFlashedEver.current) {
+      prevPosts.current = posts;
+      return;
+    }
+
+    // 2. Ignore the initial page load. We only care about NEW votes.
+    if (prevPosts.current.length === 0 && posts.length > 0) {
+      prevPosts.current = posts;
+      return;
+    }
+
+    // 3. Find if a post JUST transitioned to 67
+    const newlyHit67 = posts.some(currentPost => {
+      const isCurrently67 = currentPost.totalVotes === 67 || Number(currentPost.score).toFixed(2) === "0.67";
+      if (!isCurrently67) return false; // Not 67, ignore
+
+      // Look up what this post's score was a second ago
+      const prevPost = prevPosts.current.find(p => p.id === currentPost.id);
+      const wasPreviously67 = prevPost ? (prevPost.totalVotes === 67 || Number(prevPost.score).toFixed(2) === "0.67") : false;
+
+      // It is 67 NOW, but was NOT 67 BEFORE. This is a fresh trigger!
+      return !wasPreviously67;
+    });
+
+    if (newlyHit67) {
       setFlash67(true);
-      // Hide it after 2 seconds
+      hasFlashedEver.current = true; // 4. Lock it forever for this session
+      
       const timer = setTimeout(() => setFlash67(false), 2000);
       return () => clearTimeout(timer);
     }
+
+    // Update our memory for the next time posts change
+    prevPosts.current = posts;
   }, [posts]);
 
   const handleVote = async (parentId, voteValue) => {
@@ -69,11 +98,9 @@ export default function Feed() {
         body: JSON.stringify({ vote: voteValue, voterId: userId, reputationMock: 0.5 })
       });
 
-      // NEW: Catch the Anti-Spam Rate Limit
       if (res.status === 429) {
         const data = await res.json();
         setErrorMsg(data.error);
-        // Clear error after 3 seconds
         setTimeout(() => setErrorMsg(''), 3000);
       }
     } catch (err) {
@@ -83,7 +110,6 @@ export default function Feed() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 text-white relative">
-      {/* NEW: 67 Easter Egg Overlay */}
       {flash67 && (
         <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
           <h1 className="text-[25rem] font-black text-green-500 animate-ping opacity-80 mix-blend-screen drop-shadow-2xl">
@@ -92,7 +118,6 @@ export default function Feed() {
         </div>
       )}
 
-      {/* NEW: Rate Limit Error Toast */}
       {errorMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-2xl z-40 animate-bounce">
           {errorMsg}
