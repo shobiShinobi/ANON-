@@ -10,9 +10,9 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// In-memory "DAG" database for early sprints
 let dag = [];
 let clients = [];
+const userVoteTracker = {}; // NEW: Tracks votes to prevent spam
 
 wss.on('connection', (ws) => {
   clients.push(ws);
@@ -29,13 +29,10 @@ function broadcast(data) {
   });
 }
 
-// US4: Create new DAG node
+// US4: Create Post
 app.post('/api/rumors', (req, res) => {
   const { text, authorId, privateKeyMock } = req.body;
-  
-  if (text.length > 500) {
-    return res.status(400).json({ error: 'Max 500 characters allowed.' });
-  }
+  if (text.length > 500) return res.status(400).json({ error: 'Max 500 chars.' });
 
   const node = {
     id: `node_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -43,46 +40,61 @@ app.post('/api/rumors', (req, res) => {
     text,
     authorId,
     timestamp: Date.now(),
-    signature: `signed_with_${privateKeyMock}` // AC: Sign content (Mocked)
+    signature: `signed_with_${privateKeyMock}`
   };
 
   dag.push(node);
-  broadcast({ type: 'NEW_NODE', node }); // AC: Broadcast to peers
-
+  broadcast({ type: 'NEW_NODE', node });
   res.json(node);
 });
 
-// US5: Fetch recent rumors
-app.get('/api/feed', (req, res) => {
-  // Filter only RUMOR nodes and send them to the frontend
-  const rumors = dag.filter(n => n.type === 'RUMOR').sort((a, b) => b.timestamp - a.timestamp);
-  res.json(rumors);
-});
-
-// US7: Express agreement/disagreement
+// US7 & Anti-Spam: Voting Mechanism with Rate Limit
 app.post('/api/rumors/:id/votes', (req, res) => {
   const parentId = req.params.id;
   const { vote, voterId, reputationMock } = req.body;
 
-  // AC: Check if user has Reputation > 0 (Mocked for early sprint)
-  if (reputationMock <= 0) {
-    return res.status(403).json({ error: 'Reputation too low to vote.' });
-  }
+  if (reputationMock <= 0) return res.status(403).json({ error: 'Reputation too low.' });
 
-  // AC: Create child node in DAG linking to the rumor
+  // NEW: Anti-Spam Check (Max 3 votes per user per post)
+  const trackKey = `${voterId}_${parentId}`;
+  if (!userVoteTracker[trackKey]) userVoteTracker[trackKey] = 0;
+  
+  if (userVoteTracker[trackKey] >= 3) {
+    return res.status(429).json({ error: 'Anti-Spam: You can only vote 3 times on this post.' });
+  }
+  userVoteTracker[trackKey]++;
+
   const voteNode = {
     id: `vote_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
     type: 'VOTE',
     parentId: parentId,
-    vote: vote, // +1 or -1
+    vote: vote,
     voterId: voterId,
     timestamp: Date.now()
   };
 
   dag.push(voteNode);
   broadcast({ type: 'NEW_VOTE', node: voteNode });
-  
   res.json(voteNode);
+});
+
+// US5 & US9: Fetch Feed with Trust Scores and Vote Counts
+app.get('/api/feed', (req, res) => {
+  const rumors = dag.filter(n => n.type === 'RUMOR').sort((a, b) => b.timestamp - a.timestamp);
+  
+  const feedWithScores = rumors.map(rumor => {
+    const votes = dag.filter(n => n.type === 'VOTE' && n.parentId === rumor.id);
+    let score = 0.5; // Default Neutral
+    
+    if (votes.length > 0) {
+      const positive = votes.filter(v => v.vote === 1).length;
+      score = positive / votes.length;
+    }
+    // NEW: Send totalVotes to frontend for the easter egg
+    return { ...rumor, score, totalVotes: votes.length };
+  });
+
+  res.json(feedWithScores);
 });
 
 server.listen(5000, () => console.log('Sprint 1 Server running on port 5000'));

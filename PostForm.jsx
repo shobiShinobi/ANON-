@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 export default function PostForm({ userId }) {
   const [text, setText] = useState('');
@@ -7,22 +7,25 @@ export default function PostForm({ userId }) {
     e.preventDefault();
     if (!text.trim() || text.length > 500) return;
 
-    await fetch('http://localhost:5000/api/rumors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        authorId: userId,
-        privateKeyMock: 'mock_key_123'
-      })
-    });
-    setText('');
+    try {
+      await fetch('http://localhost:5000/api/rumors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          authorId: userId,
+          privateKeyMock: 'mock_key_123'
+        })
+      });
+      setText('');
+    } catch (err) {
+      console.error("Failed to post:", err);
+    }
   };
 
   return (
     <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 mb-6">
       <form onSubmit={handleSubmit}>
-        {/* AC: Input field max 500 chars */}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -33,7 +36,7 @@ export default function PostForm({ userId }) {
         />
         <div className="flex justify-between items-center mt-2">
           <span className="text-xs text-gray-500">{text.length}/500</span>
-          <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm">
+          <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-500 transition-colors">
             Broadcast
           </button>
         </div>
