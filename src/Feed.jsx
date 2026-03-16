@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PostForm from './PostForm.jsx'; 
+import ManaBar from './ManaBar.jsx';
 
 const TrustBadge = ({ score }) => {
   let colorClass = "text-gray-400 bg-gray-700";
@@ -20,14 +21,12 @@ const TrustBadge = ({ score }) => {
   );
 };
 
-export default function Feed() {
+export default function Feed({ userId, onLogout }) {
   const [posts, setPosts] = useState([]);
-  const [userId] = useState(() => Math.floor(Math.random() * 1000).toString());
-  
+  const [mana, setMana] = useState(100);
   const [flash67, setFlash67] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // NEW: React memory refs to track the easter egg properly
   const hasFlashedEver = useRef(false);
   const prevPosts = useRef([]);
 
@@ -40,6 +39,12 @@ export default function Feed() {
 
   useEffect(() => {
     fetchPosts();
+    
+    // Fetch initial mana balance
+    fetch(`http://localhost:5000/api/users/${userId}/mana`)
+      .then(res => res.json())
+      .then(data => setMana(data.mana))
+      .catch(err => console.error(err));
       
     const ws = new WebSocket('ws://localhost:5000');
     ws.onmessage = (event) => {
@@ -47,48 +52,48 @@ export default function Feed() {
       if (data.type === 'NEW_NODE' || data.type === 'NEW_VOTE') {
         fetchPosts();
       }
+      
+      // Update mana instantly when server deducts or regenerates it
+      if (data.type === 'MANA_UPDATE' && data.userId === userId) {
+        setMana(data.mana);
+      }
     };
     return () => ws.close();
-  }, []);
+  }, [userId]);
 
-  // UPDATED: Smart Easter Egg Trigger
+  // Easter Egg Logic
   useEffect(() => {
-    // 1. If we already flashed this session, do nothing.
     if (hasFlashedEver.current) {
       prevPosts.current = posts;
       return;
     }
-
-    // 2. Ignore the initial page load. We only care about NEW votes.
     if (prevPosts.current.length === 0 && posts.length > 0) {
       prevPosts.current = posts;
       return;
     }
 
-    // 3. Find if a post JUST transitioned to 67
     const newlyHit67 = posts.some(currentPost => {
       const isCurrently67 = currentPost.totalVotes === 67 || Number(currentPost.score).toFixed(2) === "0.67";
-      if (!isCurrently67) return false; // Not 67, ignore
-
-      // Look up what this post's score was a second ago
+      if (!isCurrently67) return false; 
       const prevPost = prevPosts.current.find(p => p.id === currentPost.id);
       const wasPreviously67 = prevPost ? (prevPost.totalVotes === 67 || Number(prevPost.score).toFixed(2) === "0.67") : false;
-
-      // It is 67 NOW, but was NOT 67 BEFORE. This is a fresh trigger!
       return !wasPreviously67;
     });
 
     if (newlyHit67) {
       setFlash67(true);
-      hasFlashedEver.current = true; // 4. Lock it forever for this session
-      
+      hasFlashedEver.current = true; 
       const timer = setTimeout(() => setFlash67(false), 2000);
       return () => clearTimeout(timer);
     }
-
-    // Update our memory for the next time posts change
     prevPosts.current = posts;
   }, [posts]);
+
+  // Handle errors triggered by PostForm or Voting
+  const triggerError = (msg) => {
+    setErrorMsg(msg);
+    setTimeout(() => setErrorMsg(''), 3000);
+  };
 
   const handleVote = async (parentId, voteValue) => {
     try {
@@ -98,10 +103,9 @@ export default function Feed() {
         body: JSON.stringify({ vote: voteValue, voterId: userId, reputationMock: 0.5 })
       });
 
-      if (res.status === 429) {
+      if (res.status === 403 || res.status === 429) {
         const data = await res.json();
-        setErrorMsg(data.error);
-        setTimeout(() => setErrorMsg(''), 3000);
+        triggerError(data.error);
       }
     } catch (err) {
       console.error("Vote error:", err);
@@ -119,13 +123,23 @@ export default function Feed() {
       )}
 
       {errorMsg && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-2xl z-40 animate-bounce">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 w-max max-w-sm text-center bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-2xl z-40 animate-bounce">
           {errorMsg}
         </div>
       )}
 
-      <h1 className="text-2xl font-bold mb-4">Campus Feed (User: {userId})</h1>
-      <PostForm userId={userId} />
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Campus Feed</h1>
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-mono text-gray-500">{userId}</span>
+          <button onClick={onLogout} className="text-sm text-red-400 hover:text-red-300 underline">Destroy Session</button>
+        </div>
+      </div>
+
+      <ManaBar mana={mana} />
+      
+      {/* Pass the error trigger down to the PostForm */}
+      <PostForm userId={userId} onError={triggerError} />
       
       <div className="space-y-4">
         {posts.map(post => (

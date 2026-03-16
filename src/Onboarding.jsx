@@ -1,6 +1,5 @@
-    import React, { useState } from 'react';
+import React, { useState } from 'react';
 
-// Wordlist for the US3 recovery seed
 const WORDS = ["apple", "brave", "campus", "delta", "eagle", "falcon", "ghost", "hover", "index", "jungle", "karma", "lunar", "matrix", "nexus", "orbit", "pulse", "quantum", "radar", "solar", "tango"];
 
 export default function Onboarding({ onComplete }) {
@@ -11,16 +10,12 @@ export default function Onboarding({ onComplete }) {
 
   const handleRegister = (e) => {
     e.preventDefault();
-    // US1: Strict .edu verification
     if (!email.toLowerCase().endsWith('.edu')) {
       setError('Access Denied: You must use a valid .edu campus email.');
       return;
     }
     
-    // US2: Generate untraceable ID (Identity Decoupling)
     const id = 'u_' + Math.random().toString(36).substr(2, 9);
-    
-    // US3: Generate 12-word recovery seed
     const seed = Array.from({length: 12}, () => WORDS[Math.floor(Math.random() * WORDS.length)]).join(' ');
 
     setIdentity({ id, seed });
@@ -28,7 +23,6 @@ export default function Onboarding({ onComplete }) {
   };
 
   const handleEnter = () => {
-    // Save locally so they stay logged in
     localStorage.setItem('anon_user', JSON.stringify({ id: identity.id }));
     onComplete(identity.id);
   };

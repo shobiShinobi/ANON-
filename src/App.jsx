@@ -6,7 +6,6 @@ export default function App() {
   const [userId, setUserId] = useState(null);
 
   useEffect(() => {
-    // Check if user already onboarded
     const saved = localStorage.getItem('anon_user');
     if (saved) setUserId(JSON.parse(saved).id);
   }, []);
