@@ -6,16 +6,33 @@ export default function App() {
   const [userId, setUserId] = useState(null);
 
   useEffect(() => {
-    // Check if user already onboarded
     const saved = localStorage.getItem('anon_user');
     if (saved) setUserId(JSON.parse(saved).id);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('anon_user');
-    setUserId(null);
+  const handleLogin = (id) => {
+    localStorage.setItem('anon_user', JSON.stringify({ id }));
+    setUserId(id);
   };
 
-  if (!userId) return <Onboarding onComplete={setUserId} />;
-  return <Feed userId={userId} onLogout={handleLogout} />;
+  const handleLogout = () => {
+    localStorage.removeItem('anon_user');
+    setUserId(null); // Soft logout: keeps backend Mana intact
+  };
+
+  const handleDestroy = async () => {
+    if (window.confirm("WARNING: This will permanently delete your identity and Mana from this node. Are you sure?")) {
+      try {
+        // Hard destroy: tell backend to wipe the user
+        await fetch(`http://localhost:5000/api/users/${userId}`, { method: 'DELETE' });
+      } catch (err) {
+        console.error("Failed to destroy backend identity", err);
+      }
+      localStorage.removeItem('anon_user');
+      setUserId(null);
+    }
+  };
+
+  if (!userId) return <Onboarding onComplete={handleLogin} />;
+  return <Feed userId={userId} onLogout={handleLogout} onDestroy={handleDestroy} />;
 }
