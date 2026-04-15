@@ -50,13 +50,46 @@ setInterval(() => {
   });
 }, 5000);
 
+// NEW: True Historical Consensus Alignment
 function calculateReputations() {
   const allVotes = db.prepare("SELECT * FROM dag WHERE type = 'VOTE'").all();
   const userReputation = {};
+  
+  // Step 1: Figure out the "Ground Truth" (Consensus) for every post
+  const postConsensus = {};
   allVotes.forEach(v => {
-    if (!userReputation[v.voterId]) userReputation[v.voterId] = 1.0;
-    userReputation[v.voterId] += 0.2; 
+    if (!postConsensus[v.parentId]) postConsensus[v.parentId] = { verify: 0, dispute: 0 };
+    if (v.vote === 1) postConsensus[v.parentId].verify++;
+    if (v.vote === -1) postConsensus[v.parentId].dispute++;
   });
+
+  // Step 2: Reward or Penalize users based on if they agreed with the community
+  allVotes.forEach(v => {
+    if (!userReputation[v.voterId]) userReputation[v.voterId] = 1.0; // Everyone starts at 1.0
+
+    const consensus = postConsensus[v.parentId];
+    const totalVotes = consensus.verify + consensus.dispute;
+
+    // We only judge accuracy if at least 3 people have voted on the post 
+    if (totalVotes >= 3) {
+      const isPostVerified = consensus.verify > consensus.dispute;
+      const isPostDisputed = consensus.dispute > consensus.verify;
+
+      if ((isPostVerified && v.vote === 1) || (isPostDisputed && v.vote === -1)) {
+        // Voted with the majority: Small Reward
+        userReputation[v.voterId] += 0.2;
+      } else if ((isPostVerified && v.vote === -1) || (isPostDisputed && v.vote === 1)) {
+        // Voted against the majority (Troll/Spam): Heavy Penalty
+        userReputation[v.voterId] -= 0.4; 
+      }
+    }
+  });
+
+  // Step 3: Ensure reputation doesn't drop into negative numbers (hard floor of 0.1)
+  for (let id in userReputation) {
+    userReputation[id] = Math.max(0.1, userReputation[id]);
+  }
+
   return userReputation;
 }
 
