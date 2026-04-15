@@ -12,12 +12,9 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// ==========================================
-// SQLITE PERSISTENCE
-// ==========================================
-const db = new Database(`node_${PORT}.db`); // Unique DB per node
+const db = new Database(`node_${PORT}.db`); 
 db.exec(`
-  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, seed TEXT, mana INTEGER);
+  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, seed TEXT, mana INTEGER, email_hash TEXT UNIQUE);
   CREATE TABLE IF NOT EXISTS dag (id TEXT PRIMARY KEY, type TEXT, text TEXT, authorId TEXT, parentId TEXT, vote INTEGER, voterId TEXT, timestamp INTEGER);
 `);
 
@@ -35,20 +32,14 @@ function notifyLocal(data) {
   localClients.forEach(c => { if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data)); });
 }
 
-// ==========================================
-// EPIDEMIC GOSSIP (5 Random Peers)
-// ==========================================
 function gossipToMesh(message) {
   const peersArray = Array.from(connectedPeers.values());
-  // Shuffle and pick up to 5 random peers
   const randomPeers = peersArray.sort(() => 0.5 - Math.random()).slice(0, 5);
-  
   randomPeers.forEach(peer => {
     if (peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify(message));
   });
 }
 
-// Background Mana Loop (Updates SQLite)
 setInterval(() => {
   const users = db.prepare('SELECT id, mana FROM users WHERE mana < 100').all();
   const updateMana = db.prepare('UPDATE users SET mana = ? WHERE id = ?');
@@ -59,25 +50,36 @@ setInterval(() => {
   });
 }, 5000);
 
-// ==========================================
-// ROUTES & GLOBAL IDENTITY
-// ==========================================
+function calculateReputations() {
+  const allVotes = db.prepare("SELECT * FROM dag WHERE type = 'VOTE'").all();
+  const userReputation = {};
+  allVotes.forEach(v => {
+    if (!userReputation[v.voterId]) userReputation[v.voterId] = 1.0;
+    userReputation[v.voterId] += 0.2; 
+  });
+  return userReputation;
+}
+
 app.post('/api/users/register', (req, res) => {
-  const { id, seed } = req.body;
-  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
-  if (!existing) {
-    db.prepare('INSERT INTO users (id, seed, mana) VALUES (?, ?, 100)').run(id, seed);
-    const userObj = { id, seed, mana: 100 };
-    gossipToMesh({ type: 'GOSSIP_USER', user: userObj }); // Propagate global identity
+  const { id, seed, emailHash } = req.body;
+  try {
+    db.prepare('INSERT INTO users (id, seed, mana, email_hash) VALUES (?, ?, 100, ?)').run(id, seed, emailHash);
+    const userObj = { id, seed, mana: 100, emailHash };
+    gossipToMesh({ type: 'GOSSIP_USER', user: userObj }); 
+    res.json({ success: true });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'Email already registered.' });
+    }
+    res.status(500).json({ error: 'Database error' });
   }
-  res.json({ success: true });
 });
 
 app.post('/api/users/login', (req, res) => {
   const { id, seed } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND seed = ?').get(id, seed);
   if (user) res.json({ success: true, mana: user.mana });
-  else res.status(401).json({ error: 'Invalid ID or Seed across the mesh.' });
+  else res.status(401).json({ error: 'Invalid ID or Seed.' });
 });
 
 app.get('/api/users/:id/mana', (req, res) => {
@@ -85,29 +87,36 @@ app.get('/api/users/:id/mana', (req, res) => {
   res.json({ mana: user ? user.mana : 0 });
 });
 
+app.get('/api/users/:id/trust', (req, res) => {
+  const reps = calculateReputations();
+  res.json({ trust: reps[req.params.id] || 1.0 });
+});
+
 app.get('/api/feed', (req, res) => {
   const rumors = db.prepare("SELECT * FROM dag WHERE type = 'RUMOR' ORDER BY timestamp DESC").all();
   const allVotes = db.prepare("SELECT * FROM dag WHERE type = 'VOTE'").all();
-  
-  const userReputation = {};
-  allVotes.forEach(v => {
-    if (!userReputation[v.voterId]) userReputation[v.voterId] = 1.0;
-    userReputation[v.voterId] += 0.2; 
-  });
+  const reps = calculateReputations();
 
   const feedWithScores = rumors.map(rumor => {
     const postVotes = allVotes.filter(n => n.parentId === rumor.id);
     let score = 0.5; 
+    
     if (postVotes.length > 0) {
       let wPos = 0; let tWeight = 0;
       postVotes.forEach(v => {
-        const weight = Math.min(userReputation[v.voterId] || 1.0, 5.0); 
+        const weight = Math.min(reps[v.voterId] || 1.0, 5.0); 
         tWeight += weight;
         if (v.vote === 1) wPos += weight;
       });
       score = wPos / tWeight; 
     }
-    return { ...rumor, score, totalVotes: postVotes.length };
+
+    const authorRep = reps[rumor.authorId] || 1.0;
+    let authorTag = "Neutral User";
+    if (authorRep >= 1.6) authorTag = "Trusted User";
+    else if (authorRep < 1.0) authorTag = "Untrustworthy User";
+
+    return { ...rumor, score, totalVotes: postVotes.length, authorTag };
   });
 
   res.json(feedWithScores);
@@ -119,8 +128,7 @@ app.post('/api/rumors', (req, res) => {
   if (!user || user.mana < 50) return res.status(403).json({ error: 'Need 50 Mana.' });
   
   db.prepare('UPDATE users SET mana = mana - 50 WHERE id = ?').run(authorId);
-  const newMana = user.mana - 50;
-  notifyLocal({ type: 'MANA_UPDATE', userId: authorId, mana: newMana });
+  notifyLocal({ type: 'MANA_UPDATE', userId: authorId, mana: user.mana - 50 });
 
   const node = { id: `r_${Date.now()}_${Math.random()}`, type: 'RUMOR', text, authorId, parentId: null, vote: null, voterId: null, timestamp: Date.now() };
   db.prepare('INSERT INTO dag (id, type, text, authorId, timestamp) VALUES (?, ?, ?, ?, ?)').run(node.id, node.type, node.text, node.authorId, node.timestamp);
@@ -130,35 +138,25 @@ app.post('/api/rumors', (req, res) => {
   res.json(node);
 });
 
-// --- THE RESTORED VOTING ROUTE ---
 app.post('/api/rumors/:id/votes', (req, res) => {
   const parentId = req.params.id;
   const { vote, voterId } = req.body;
 
-  // 1. Check if user has enough Mana
   const user = db.prepare('SELECT mana FROM users WHERE id = ?').get(voterId);
   if (!user || user.mana < 5) return res.status(403).json({ error: 'Need 5 Mana to vote.' });
 
-  // 2. Anti-Spam Check
-  const voteCount = db.prepare('SELECT COUNT(*) as count FROM dag WHERE type = "VOTE" AND voterId = ? AND parentId = ?').get(voterId, parentId).count;
-  if (voteCount >= 3) return res.status(429).json({ error: 'Anti-Spam: Max 3 votes per post.' });
+  // STRICT LOCK: Ensure this specific user has not voted on this specific post
+  const existingVote = db.prepare('SELECT id FROM dag WHERE type = "VOTE" AND voterId = ? AND parentId = ?').get(voterId, parentId);
+  if (existingVote) return res.status(429).json({ error: 'Restriction: You have already voted on this post.' });
 
-  // 3. Deduct Mana
   db.prepare('UPDATE users SET mana = mana - 5 WHERE id = ?').run(voterId);
-  const newMana = user.mana - 5;
-  notifyLocal({ type: 'MANA_UPDATE', userId: voterId, mana: newMana });
+  notifyLocal({ type: 'MANA_UPDATE', userId: voterId, mana: user.mana - 5 });
 
-  // 4. Create Vote Node
-  const voteNode = { 
-    id: `v_${Date.now()}_${Math.random()}`, type: 'VOTE', text: null, authorId: null, 
-    parentId: parentId, vote: vote, voterId: voterId, timestamp: Date.now() 
-  };
-  
+  const voteNode = { id: `v_${Date.now()}_${Math.random()}`, type: 'VOTE', text: null, authorId: null, parentId: parentId, vote: vote, voterId: voterId, timestamp: Date.now() };
   db.prepare('INSERT INTO dag (id, type, text, authorId, parentId, vote, voterId, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     voteNode.id, voteNode.type, voteNode.text, voteNode.authorId, voteNode.parentId, voteNode.vote, voteNode.voterId, voteNode.timestamp
   );
 
-  // 5. Update Feed and Gossip
   notifyLocal({ type: 'NEW_NODE' });
   gossipToMesh({ type: 'GOSSIP_DAG', node: voteNode }); 
   res.json(voteNode);
@@ -168,26 +166,19 @@ app.delete('/api/users/:id', (req, res) => {
   const id = req.params.id;
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   db.prepare('DELETE FROM dag WHERE authorId = ? OR voterId = ?').run(id, id); 
-  
   notifyLocal({ type: 'NEW_NODE' });
   gossipToMesh({ type: 'GOSSIP_DELETE', userId: id }); 
   res.json({ success: true });
 });
 
-// ==========================================
-// P2P MESH NETWORKING
-// ==========================================
 function connectToPeer(port) {
   if (port == PORT || connectedPeers.has(port)) return; 
-  
   const peerWs = new WebSocket(`ws://localhost:${port}/peer`);
-  
   peerWs.on('open', () => {
     connectedPeers.set(port, peerWs);
     notifyLocal({ type: 'PEER_UPDATE', count: connectedPeers.size });
     peerWs.send(JSON.stringify({ type: 'SYNC_REQ' }));
   });
-
   peerWs.on('message', (msg) => handlePeerMessage(peerWs, JSON.parse(msg)));
   peerWs.on('close', () => { connectedPeers.delete(port); notifyLocal({ type: 'PEER_UPDATE', count: connectedPeers.size }); });
   peerWs.on('error', () => {});
@@ -201,11 +192,10 @@ function handlePeerMessage(ws, data) {
   }
   if (data.type === 'SYNC_RES') {
     const insertDag = db.prepare('INSERT OR IGNORE INTO dag (id, type, text, authorId, parentId, vote, voterId, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    const insertUser = db.prepare('INSERT OR IGNORE INTO users (id, seed, mana) VALUES (?, ?, ?)');
-    
+    const insertUser = db.prepare('INSERT OR IGNORE INTO users (id, seed, mana, email_hash) VALUES (?, ?, ?, ?)');
     db.transaction(() => {
       data.fullDag.forEach(n => insertDag.run(n.id, n.type, n.text, n.authorId, n.parentId, n.vote, n.voterId, n.timestamp));
-      data.allUsers.forEach(u => insertUser.run(u.id, u.seed, u.mana));
+      data.allUsers.forEach(u => insertUser.run(u.id, u.seed, u.mana, u.email_hash));
     })();
     notifyLocal({ type: 'NEW_NODE' });
   }
@@ -214,7 +204,7 @@ function handlePeerMessage(ws, data) {
     if (res.changes > 0) { notifyLocal({ type: 'NEW_NODE' }); gossipToMesh(data); }
   }
   if (data.type === 'GOSSIP_USER') {
-    const res = db.prepare('INSERT OR IGNORE INTO users (id, seed, mana) VALUES (?, ?, ?)').run(data.user.id, data.user.seed, data.user.mana);
+    const res = db.prepare('INSERT OR IGNORE INTO users (id, seed, mana, email_hash) VALUES (?, ?, ?, ?)').run(data.user.id, data.user.seed, data.user.mana, data.user.emailHash);
     if (res.changes > 0) gossipToMesh(data);
   }
   if (data.type === 'GOSSIP_DELETE') {
@@ -225,17 +215,12 @@ function handlePeerMessage(ws, data) {
   }
 }
 
-// US13/Modified: Check for peers every 7 seconds
 setInterval(() => {
-  for (let p = 5000; p <= 5900; p++) {
-    if (Math.random() > 0.8) connectToPeer(p); // Sparse scanning for performance
-  }
-}, 7000);
+  for (let p = 5000; p <= 5900; p++) if (Math.random() > 0.8) connectToPeer(p);
+}, 3000);
 
 wss.on('connection', (ws, req) => {
-  if (req.url === '/peer') {
-    ws.on('message', (msg) => handlePeerMessage(ws, JSON.parse(msg)));
-  }
+  if (req.url === '/peer') ws.on('message', (msg) => handlePeerMessage(ws, JSON.parse(msg)));
 });
 
 server.listen(PORT, () => console.log(`Decentralized DB Node active on ${PORT}`));

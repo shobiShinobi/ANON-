@@ -19,10 +19,9 @@ async function getOpenPort(startPort) {
 async function startNode() {
   console.log('🔍 Initializing dynamic decentralized node...');
   
-  // Randomize the starting search point so rapid clicks don't collide
   const randomBase = getRandomPort(5000, 5900); 
   const backendPort = await getOpenPort(randomBase);
-  const frontendPort = await getOpenPort(backendPort + 1000); // Keep frontend far away
+  const frontendPort = await getOpenPort(backendPort + 1000); 
 
   console.log(`✅ Locked Ports -> Backend: ${backendPort} | Frontend: ${frontendPort}`);
 
