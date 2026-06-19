@@ -1,79 +1,110 @@
-# ANON - Campus Social Network (Sprint 1 Prototype)
+# ANON — Anonymous Campus Rumor Mesh
 
-## Overview
-ANON is a prototype of a campus-centric anonymous social network. This repo demonstrates a simulated decentralized mesh node with local identity, verified campus access, reputation-aware voting, and live feed synchronization.
+ANON is a campus-verified, **anonymous** social board where students post rumors
+and the community **verifies** or **disputes** them. Trust scores and reputation
+emerge from consensus voting. Your identity is self-custodial — it lives on your
+device, not in our database.
 
-This prototype runs a local SQLite-backed node (`server/server.js`) and a React frontend via Vite. The mesh is simulated by gossiping node and feed data between peer nodes over WebSocket connections.
-
-## Current Features
-* **Campus-Verified Onboarding:** Sign up with a `.edu` email, which is hashed and discarded. The app generates a Node ID and a 12-word recovery seed.
-* **Seed-Based Login:** Recover a mesh identity with Node ID + seed phrase and reconnect to the network.
-* **Broadcast Rumors:** Post up to 500 characters of anonymous campus updates. Each post costs 50 Mana.
-* **Real-Time Feed Sync:** New posts and votes propagate instantly through the local node and connected peers via WebSockets and gossip.
-* **Trust Scoring:** Each post shows a dynamic score from `0.00` to `1.00`, with color-coded badges for `VERIFIED`, `NEUTRAL`, and `DISPUTED`.
-* **Reputation-Based Author Tags:** Authors are labeled `Trusted User`, `Neutral User`, or `Untrustworthy User` based on historical voting consensus.
-* **Consensus-Weighted Voting:** Votes are weighted by voter reputation, which is recalculated across the node's DAG history.
-* **Mana System:** Posting consumes Mana, voting costs 5 Mana, and Mana regenerates over time.
-* **Vote Lock Enforcement:** Users can vote only once per post, and the UI disables vote buttons after a vote.
-* **Identity Controls:** Log out, or permanently destroy your identity and all related local posts/votes from the node.
-* **Profile & Peer Status:** Profile page shows node trust multiplier, mana, and active peer count.
-* **Network Terminal Logs:** Built-in debug console shows gossip, peer, and event activity.
-
-## Tech Stack
-* **Frontend:** React, Vite
-* **Backend:** Node.js, Express
-* **Realtime:** WebSockets (`ws`)
-* **Storage:** SQLite via `better-sqlite3`
+> **v2** turns the original local-only mesh *prototype* into a single,
+> **deployment-ready** web app while preserving the anonymous, "keys-on-device"
+> peer-to-peer feel. See [`SECURITY.md`](SECURITY.md) and
+> [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ---
 
-## Running the Prototype (Windows)
+## Features
 
-### 1. Install dependencies
-Double-click **`0_install.bat`** or run:
+- **Anonymous, self-custodial identity.** Sign up with a `.edu` email that is
+  SHA-256 hashed **in your browser** — the server never receives or stores it. You
+  get a public Node ID and a 12-word recovery seed (your private key). The seed is
+  stored only in your browser and only ever hashed (scrypt) on the server.
+- **Post rumors — now with images.** Up to 500 chars and/or one image (JPEG / PNG
+  / GIF / WebP, ≤ 5 MB), validated by magic bytes server-side. Posting costs Mana.
+- **Verify / dispute voting** with reputation-weighted trust scores and
+  `VERIFIED / NEUTRAL / DISPUTED` badges.
+- **Reputation** that rewards voting with consensus and penalizes trolling;
+  surfaces `Trusted / Neutral / Untrustworthy` author tags.
+- **Profile customization** — display name, bio, avatar emoji and color.
+- **Mana economy** — posting (50) and voting (5) cost Mana, which regenerates,
+  providing built-in spam/abuse resistance.
+- **Live mesh feel** — realtime feed/Mana updates over WebSocket, a live network
+  terminal, and a peer topology graph. Degrades gracefully to polling if realtime
+  is unavailable.
+- **Self-service data control** — log out, or destroy your identity and all of
+  your content (GDPR-friendly erasure).
+
+## Tech stack
+
+- **Frontend:** React 18, Vite 5, Tailwind CSS v4
+- **Backend:** Node.js, Express 4, `ws` WebSockets
+- **Storage:** SQLite (`better-sqlite3`, WAL) + local image uploads
+- **Security:** helmet, scrypt seed hashing, JWT sessions, rate limiting,
+  sanitize-html, hash-chained audit log
+- **Tests/CI:** Vitest + Supertest, coverage gates, GitHub Actions (+ `npm audit`)
+
+---
+
+## Quick start (development)
 
 ```bash
 npm install
+npm run dev:all      # backend on :5000, Vite web app on :5173
 ```
 
+Open <http://localhost:5173>. The web app proxies the API and WebSocket to the
+backend, so everything is same-origin.
 
-### 2. Start a local node
-Use the launcher to start a backend node and frontend together:
+> Prefer two terminals? Run `npm run dev:server` and `npm run dev` separately, or
+> `node launcher.js`.
 
-```bash
-node launcher.js
-```
-
-Or use the batch script:
-
-```bash
-Start_New_Node.bat
-```
-
-This selects a random backend port between `5000` and `5900`, launches the React app on a matching frontend port, and stores node data in `node_<port>.db`.
-
-
-### 3. Open additional nodes
-Run `node launcher.js` or `Start_New_Node.bat` again in a second terminal to simulate another peer. Each node runs independently and gossip-syncs with available peers.
+### Try it
+1. **Sign up** with a `.edu` email and save your Node ID + seed phrase.
+2. **Post** a rumor (optionally attach an image).
+3. **Vote** verify/dispute and watch the trust badge and reputation update.
+4. **Customize** your profile (avatar, color, bio) on the Profile tab.
+5. **Recover** by logging out and logging back in with your Node ID + seed.
+6. **Destroy identity** to erase your account and content.
 
 ---
 
-## Manual Startup (Alternative)
-If you want to run the backend and frontend separately:
+## Production build
 
 ```bash
-node server/server.js
-npm run dev
+npm run build                      # outputs dist/
+NODE_ENV=production JWT_SECRET=$(openssl rand -hex 48) node server/server.js
 ```
 
-> Note: the app currently expects the frontend to know the backend port via `VITE_BACKEND_PORT`.
+The single Node process now serves the built SPA, API, uploads, and WebSocket on
+`PORT` (default 5000). For Docker, TLS, backups, and the full ops runbook, see
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ---
 
-## What to Check
-1. **Sign up with a `.edu` email** and copy your generated Node ID and seed phrase.
-2. **Create a post** and verify it appears in the feed.
-3. **Open another node** and confirm the new post syncs automatically.
-4. **Vote on a post** and observe the trust badge and author tags update.
-5. **View your profile** to see Mana, trust multiplier, and peer connectivity.
-6. **Use Destroy Identity** to remove your local identity and associated DAG data from the node.
+## Testing
+
+```bash
+npm test               # unit + integration (Vitest + Supertest)
+npm run test:coverage  # with coverage thresholds (enforced in CI)
+```
+
+---
+
+## Project layout
+
+```
+server/
+  config.js       env/config + production secret guard
+  db.js           SQLite open + schema/migrations
+  auth.js         scrypt seed hashing + JWT + requireAuth middleware
+  validate.js     input sanitization & allow-list validators
+  uploads.js      multer + magic-byte image validation
+  reputation.js   consensus-alignment reputation math
+  audit.js        tamper-evident hash-chained audit log
+  app.js          Express app: routes, rate limits, error handling
+  server.js       HTTP + WebSocket + Mana regen + graceful shutdown
+src/              React app (api client, onboarding, feed, profile, UI)
+tests/            unit + integration tests
+```
+
+See [`SECURITY.md`](SECURITY.md) for how the project maps to the full security &
+reliability checklist.

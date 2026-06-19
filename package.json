@@ -1,20 +1,46 @@
 {
-  "name": "anon-sprint1",
-  "version": "1.0.0",
+  "name": "anon-mesh",
+  "version": "2.0.0",
+  "description": "ANON - campus-verified, anonymous, peer-vibe rumor network. Single deployable server with client-held identity keys.",
+  "private": true,
+  "engines": {
+    "node": ">=18.18 <23"
+  },
   "scripts": {
     "dev": "vite",
-    "start": "node server.js"
+    "dev:server": "node server/server.js",
+    "dev:all": "concurrently -k -n SERVER,WEB -c green,cyan \"npm:dev:server\" \"npm:dev\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "audit": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "ws": "^8.13.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "sanitize-html": "^2.14.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.0.0",
-    "vite": "^4.4.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
+    "concurrently": "^9.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "supertest": "^7.0.0",
+    "tailwindcss": "^4.0.0",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
   }
 }

@@ -1,53 +1,121 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Feed from './Feed.jsx';
 import Profile from './Profile.jsx';
 import Onboarding from './Onboarding.jsx';
+import { Avatar, Toast } from './ui.jsx';
+import { silentLogin, getMe, clearIdentity, destroyIdentity, loadIdentity } from './api.js';
 
 export default function App() {
-  const [userId, setUserId] = useState(null);
-  const [page, setPage] = useState('feed'); // 'feed' or 'profile'
+  const [booting, setBooting] = useState(true);
+  const [me, setMe] = useState(null); // public profile + mana
+  const [page, setPage] = useState('feed');
+  const [toast, setToast] = useState(null);
 
+  const notify = useCallback((message, type = 'error') => setToast({ message, type }), []);
+
+  // Try to resume a session from the locally-held seed on load.
   useEffect(() => {
-    const saved = localStorage.getItem('anon_user');
-    if (saved) setUserId(JSON.parse(saved).id);
+    (async () => {
+      if (loadIdentity()) {
+        const ok = await silentLogin();
+        if (ok) {
+          try {
+            setMe(await getMe());
+          } catch {
+            clearIdentity();
+          }
+        }
+      }
+      setBooting(false);
+    })();
   }, []);
 
-  const handleLogin = (id) => {
-    localStorage.setItem('anon_user', JSON.stringify({ id }));
-    setUserId(id);
+  const handleAuthed = (data) => {
+    setMe({ ...data.user, mana: data.mana });
+    setPage('feed');
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('anon_user');
-    setUserId(null);
+    clearIdentity();
+    setMe(null);
   };
 
   const handleDestroy = async () => {
-    if (window.confirm("WARNING: This permanently wipes your identity and posts from the ENTIRE MESH NETWORK. Are you sure?")) {
-      try {
-        const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || 5000;
-        await fetch(`http://localhost:${BACKEND_PORT}/api/users/${userId}`, { method: 'DELETE' });
-      } catch (err) { console.error("Mesh wipe failed", err); }
-      localStorage.removeItem('anon_user');
-      setUserId(null);
+    if (
+      !window.confirm(
+        'WARNING: This permanently erases your identity and all of your posts/votes from the server. This cannot be undone. Continue?'
+      )
+    )
+      return;
+    try {
+      await destroyIdentity();
+    } catch (e) {
+      notify(e.message);
     }
+    clearIdentity();
+    setMe(null);
   };
 
-  if (!userId) return <Onboarding onComplete={handleLogin} />;
-  
+  if (booting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#050505] text-green-500 font-mono animate-pulse">
+        Connecting to the mesh…
+      </div>
+    );
+  }
+
+  if (!me) return <Onboarding onAuthed={handleAuthed} />;
+
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* Universal Navigation */}
-      <nav className="bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center max-w-2xl mx-auto w-full">
-        <h1 className="text-xl font-bold text-green-500">ANON MESH</h1>
-        <div className="flex gap-4">
-          <button onClick={() => setPage('feed')} className={`font-bold transition-colors ${page === 'feed' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>Feed</button>
-          <button onClick={() => setPage('profile')} className={`font-bold transition-colors ${page === 'profile' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>Profile</button>
+    <div className="min-h-screen bg-[#050505] text-white flex flex-col">
+      <Toast message={toast?.message} type={toast?.type} onClose={() => setToast(null)} />
+
+      <nav className="sticky top-0 z-30 bg-gray-950/80 backdrop-blur border-b border-gray-800">
+        <div className="max-w-2xl mx-auto w-full px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
+            <h1 className="text-lg font-black tracking-tight text-green-500">
+              ANON<span className="text-gray-500 font-mono text-xs ml-1">/mesh</span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-1">
+            <NavBtn active={page === 'feed'} onClick={() => setPage('feed')}>
+              Feed
+            </NavBtn>
+            <NavBtn active={page === 'profile'} onClick={() => setPage('profile')}>
+              Profile
+            </NavBtn>
+            <button onClick={() => setPage('profile')} className="ml-1" title={me.displayName}>
+              <Avatar emoji={me.avatarEmoji} color={me.avatarColor} size={32} />
+            </button>
+          </div>
         </div>
       </nav>
 
-      {/* Page Routing */}
-      {page === 'feed' ? <Feed userId={userId} /> : <Profile userId={userId} onLogout={handleLogout} onDestroy={handleDestroy} />}
+      <main className="flex-1">
+        {page === 'feed' ? (
+          <Feed me={me} setMe={setMe} notify={notify} />
+        ) : (
+          <Profile me={me} setMe={setMe} notify={notify} onLogout={handleLogout} onDestroy={handleDestroy} />
+        )}
+      </main>
+
+      <footer className="text-center text-[11px] text-gray-600 font-mono py-4 border-t border-gray-900">
+        ANON MESH · anonymous campus rumor network · your identity lives on this device
+      </footer>
     </div>
+  );
+}
+
+function NavBtn({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+        active ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-200'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

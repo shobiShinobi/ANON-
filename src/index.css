@@ -1,0 +1,58 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: #050505;
+  color: #fff;
+  min-height: 100%;
+}
+
+/* App-specific animations (Tailwind v4 keeps utilities but not these custom names) */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out;
+}
+
+@keyframes grid-pan {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 40px;
+  }
+}
+
+/* Subtle mesh grid backdrop used behind the app shell */
+.mesh-grid {
+  background-image:
+    linear-gradient(rgba(34, 197, 94, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 197, 94, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: grid-pan 6s linear infinite;
+}
+
+/* Thin custom scrollbars to match the terminal vibe */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

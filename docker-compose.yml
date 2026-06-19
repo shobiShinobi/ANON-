@@ -1,0 +1,26 @@
+# Local/production-like stack. For real TLS, put this behind a reverse proxy
+# (Caddy/nginx/Traefik) that terminates HTTPS — see DEPLOYMENT.md.
+services:
+  anon:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      # REQUIRED in prod — generate with:
+      #   openssl rand -hex 48
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your environment or .env}
+      JWT_EXPIRES_IN: 1h
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5000}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      DB_FILE: /app/data/anon.db
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - anon-data:/app/data
+      - anon-uploads:/app/uploads
+
+volumes:
+  anon-data:
+  anon-uploads:

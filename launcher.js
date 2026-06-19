@@ -1,47 +1,32 @@
-const net = require('net');
+// Dev convenience: starts the backend (port 5000) and the Vite dev server
+// (port 5173) together. The frontend talks to the backend through Vite's proxy
+// (see vite.config.mjs), so they share one origin during development.
+//
+// For production you do NOT use this — you `npm run build` and run
+// `node server/server.js`, which serves the built SPA + API from one process.
+
 const { spawn } = require('child_process');
 
-function getRandomPort(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+const BACKEND_PORT = process.env.PORT || 5000;
+
+console.log(`Starting ANON dev node — API :${BACKEND_PORT}, web :5173`);
+
+const backend = spawn('node', ['server/server.js'], {
+  env: { ...process.env, PORT: BACKEND_PORT },
+  stdio: 'inherit',
+  shell: true,
+});
+
+const frontend = spawn('npx', ['vite', '--port', '5173', '--strictPort'], {
+  env: { ...process.env },
+  stdio: 'inherit',
+  shell: true,
+});
+
+function shutdown() {
+  backend.kill();
+  frontend.kill();
+  process.exit();
 }
-
-async function getOpenPort(startPort) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.listen(startPort, () => {
-      const port = server.address().port;
-      server.close(() => resolve(port));
-    });
-    server.on('error', () => resolve(getOpenPort(startPort + 1)));
-  });
-}
-
-async function startNode() {
-  console.log('🔍 Initializing dynamic decentralized node...');
-  
-  const randomBase = getRandomPort(5000, 5900); 
-  const backendPort = await getOpenPort(randomBase);
-  const frontendPort = await getOpenPort(backendPort + 1000); 
-
-  console.log(`✅ Locked Ports -> Backend: ${backendPort} | Frontend: ${frontendPort}`);
-
-  const backend = spawn('node', ['server/server.js'], {
-    env: { ...process.env, PORT: backendPort },
-    stdio: 'inherit',
-    shell: true
-  });
-
-  const frontend = spawn('npx', ['vite', '--port', frontendPort, '--strictPort'], {
-    env: { ...process.env, VITE_BACKEND_PORT: backendPort },
-    stdio: 'inherit',
-    shell: true
-  });
-
-  process.on('SIGINT', () => {
-    backend.kill();
-    frontend.kill();
-    process.exit();
-  });
-}
-
-startNode();
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

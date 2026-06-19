@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+uploads
+*.db
+*.db-shm
+*.db-wal
+.git
+.github
+.env
+.claude
+ANON--master
+tests
+*.log
